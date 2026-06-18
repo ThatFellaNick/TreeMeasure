@@ -27,6 +27,21 @@ The executable is written to `dist\TreeMeasure.exe`.
 The build also writes `dist\TreeMeasure.exe.sha256` so the executable can be
 verified after download or transfer.
 
+Development builds are unsigned by default and show a warning. Public releases
+must be signed with a trusted code-signing certificate installed in the Windows
+certificate store. Set its thumbprint without placing private key material in
+the repository:
+
+```powershell
+$env:TREEMEASURE_SIGNING_THUMBPRINT = "YOUR_CERTIFICATE_THUMBPRINT"
+.\release.ps1
+```
+
+The release command builds version 1.1.0, signs it with SHA-256, adds a trusted
+timestamp, verifies the resulting Authenticode signature, and creates a
+versioned portable ZIP plus checksum in `dist`. It stops rather than producing
+an unsigned release when the certificate is unavailable or invalid.
+
 ## Security and verification
 
 TreeMeasure is built directly from the source in this repository without a
@@ -34,6 +49,10 @@ packer or obfuscator. The executable includes product/version metadata and an
 explicit Windows manifest. Release builds should be Authenticode-signed with a
 trusted code-signing certificate when one is available; unsigned new utilities
 can receive reputation-based false positives from some security products.
+
+Only a certificate issued by a publicly trusted code-signing provider (or an
+equivalent managed signing service) improves public trust. A locally generated
+self-signed certificate is suitable for testing but is not used for releases.
 
 To verify a build in PowerShell:
 
