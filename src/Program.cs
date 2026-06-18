@@ -28,6 +28,14 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
+[assembly: AssemblyTitle("TreeMeasure")]
+[assembly: AssemblyDescription("Portable Windows disk usage analyzer")]
+[assembly: AssemblyCompany("TreeMeasure Project")]
+[assembly: AssemblyProduct("TreeMeasure")]
+[assembly: AssemblyCopyright("Copyright 2026 TreeMeasure Project")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+
 namespace TreeMeasure
 {
     // Application entry point and command-line startup path parser.

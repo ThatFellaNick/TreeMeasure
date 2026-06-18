@@ -20,6 +20,23 @@ with Windows:
 ```
 
 The executable is written to `dist\TreeMeasure.exe`.
+The build also writes `dist\TreeMeasure.exe.sha256` so the executable can be
+verified after download or transfer.
+
+## Security and verification
+
+TreeMeasure is built directly from the source in this repository without a
+packer or obfuscator. The executable includes product/version metadata and an
+explicit Windows manifest. Release builds should be Authenticode-signed with a
+trusted code-signing certificate when one is available; unsigned new utilities
+can receive reputation-based false positives from some security products.
+
+To verify a build in PowerShell:
+
+```powershell
+Get-FileHash .\dist\TreeMeasure.exe -Algorithm SHA256
+Get-AuthenticodeSignature .\dist\TreeMeasure.exe
+```
 
 ## Portable and Backstage use
 
