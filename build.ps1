@@ -44,6 +44,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
+    /reference:System.Runtime.Serialization.dll `
     /reference:System.Windows.Forms.dll `
     $src
 

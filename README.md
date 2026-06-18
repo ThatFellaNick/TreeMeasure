@@ -6,6 +6,10 @@ It scans a selected drive or folder, shows where space is being used in an
 expandable tree, and includes a right-click menu for common file-location
 actions.
 
+Completed scans can be exported as JSON for analysis. The export contains the
+full file/folder hierarchy with paths, object types, byte sizes, file counts,
+folder counts, skipped counts, and child objects.
+
 The tree starts filling while the scan is still running. TreeMeasure keeps the
 view folder-first for performance on large drives while counting all files,
 folders, sizes, and skipped protected items.

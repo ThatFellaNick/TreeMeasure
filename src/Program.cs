@@ -23,6 +23,8 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
@@ -77,17 +79,36 @@ namespace TreeMeasure
     }
 
     // Represents one scanned filesystem item. Folders aggregate child sizes and counts.
+    [DataContract]
     internal sealed class DiskItem
     {
         // Display and filesystem identity.
+        [DataMember(Name = "name", Order = 1)]
         public string Name;
+
+        [DataMember(Name = "path", Order = 2)]
         public string Path;
+
         public bool IsFile;
 
+        [DataMember(Name = "type", Order = 3)]
+        public string ItemType
+        {
+            get { return IsFile ? "file" : "folder"; }
+            private set { IsFile = string.Equals(value, "file", StringComparison.OrdinalIgnoreCase); }
+        }
+
         // Disk usage metrics shown in the table.
+        [DataMember(Name = "sizeBytes", Order = 4)]
         public long Size;
+
+        [DataMember(Name = "fileCount", Order = 5)]
         public long FileCount;
+
+        [DataMember(Name = "folderCount", Order = 6)]
         public long FolderCount;
+
+        [DataMember(Name = "skippedCount", Order = 7)]
         public int SkippedCount;
 
         // Tree relationships and UI bookkeeping.
@@ -95,7 +116,23 @@ namespace TreeMeasure
         public TreeNode Node;
         public int UpdateQueued;
         public bool ChildrenMaterialized;
+
+        [DataMember(Name = "children", Order = 8)]
         public List<DiskItem> Children = new List<DiskItem>();
+    }
+
+    // Top-level JSON export envelope with a stable schema version and generation timestamp.
+    [DataContract]
+    internal sealed class ScanExport
+    {
+        [DataMember(Name = "schemaVersion", Order = 1)]
+        public int SchemaVersion = 1;
+
+        [DataMember(Name = "generatedUtc", Order = 2)]
+        public string GeneratedUtc;
+
+        [DataMember(Name = "root", Order = 3)]
+        public DiskItem Root;
     }
 
     // Sort targets shared by the toolbar dropdown and clickable table headers.
@@ -236,6 +273,10 @@ namespace TreeMeasure
             var refreshButton = new ToolStripButton("Refresh");
             refreshButton.Click += delegate { if (!string.IsNullOrEmpty(currentRoot)) StartScan(currentRoot); };
 
+            var exportButton = new ToolStripButton("Export JSON");
+            exportButton.ToolTipText = "Export the completed file structure for analysis.";
+            exportButton.Click += delegate { ExportJson(rootItem, "TreeMeasure-scan.json"); };
+
             // Normal desktop sessions may need elevation; ScreenConnect Backstage usually runs as SYSTEM already.
             var adminButton = new ToolStripButton("Restart as Admin");
             adminButton.Enabled = !IsElevated() && !IsSystemAccount();
@@ -265,6 +306,7 @@ namespace TreeMeasure
             toolStrip.Items.Add(selectButton);
             toolStrip.Items.Add(stopButton);
             toolStrip.Items.Add(refreshButton);
+            toolStrip.Items.Add(exportButton);
             toolStrip.Items.Add(adminButton);
             toolStrip.Items.Add(new ToolStripSeparator());
             toolStrip.Items.Add(new ToolStripLabel("Units"));
@@ -326,6 +368,7 @@ namespace TreeMeasure
             nodeMenu.Items.Add("Collapse Branch", null, delegate { if (tree.SelectedNode != null) tree.SelectedNode.Collapse(false); });
             nodeMenu.Items.Add(new ToolStripSeparator());
             nodeMenu.Items.Add("Rescan This Folder", null, delegate { RescanSelected(); });
+            nodeMenu.Items.Add("Export Branch to JSON", null, delegate { ExportJson(SelectedItem(), "TreeMeasure-branch.json"); });
             nodeMenu.Items.Add("Export Branch to CSV", null, delegate { ExportSelectedCsv(); });
         }
 
@@ -1231,6 +1274,64 @@ namespace TreeMeasure
             // Start a new scan at the selected folder branch.
             var item = SelectedItem();
             if (item != null && !item.IsFile) StartScan(item.Path);
+        }
+
+        private void ExportJson(DiskItem item, string suggestedName)
+        {
+            // Export only stable completed data; the scanner mutates the hierarchy while running.
+            if (scanning)
+            {
+                MessageBox.Show(this, "Please wait for the scan to finish before exporting JSON.", "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (item == null)
+            {
+                MessageBox.Show(this, "There is no completed scan to export.", "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Filter = "JSON files (*.json)|*.json";
+                dialog.FileName = suggestedName;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string outputPath = dialog.FileName;
+                statusText.Text = "Exporting JSON...";
+
+                var exportThread = new Thread(delegate()
+                {
+                    try
+                    {
+                        var document = new ScanExport
+                        {
+                            GeneratedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                            Root = item
+                        };
+
+                        // Raise the graph limit because full-drive scans can contain hundreds of thousands of items.
+                        var serializer = new DataContractJsonSerializer(typeof(ScanExport), null, int.MaxValue, false, null, false);
+                        using (var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            serializer.WriteObject(stream, document);
+                        }
+
+                        BeginInvoke((MethodInvoker)delegate { statusText.Text = "Exported " + outputPath; });
+                    }
+                    catch (Exception ex)
+                    {
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            statusText.Text = "JSON export failed";
+                            MessageBox.Show(this, ex.Message, "JSON export failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        });
+                    }
+                });
+                exportThread.IsBackground = true;
+                exportThread.Priority = ThreadPriority.BelowNormal;
+                exportThread.Start();
+            }
         }
 
         private void ExportSelectedCsv()
