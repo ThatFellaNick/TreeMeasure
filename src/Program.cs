@@ -80,7 +80,7 @@ namespace TreeMeasure
         public long Size;
         public long FileCount;
         public long FolderCount;
-        public int ErrorCount;
+        public int SkippedCount;
 
         // Tree relationships and UI bookkeeping.
         public DiskItem Parent;
@@ -152,7 +152,7 @@ namespace TreeMeasure
         private volatile bool scanning;
         private long scannedFiles;
         private long scannedFolders;
-        private int scanErrors;
+        private int scanSkipped;
         private SortColumn sortColumn = SortColumn.Size;
         private bool sortDescending = true;
 
@@ -189,7 +189,7 @@ namespace TreeMeasure
                 header.Cursor = HitTestHeader(e.X) == SortColumn.None ? Cursors.Default : Cursors.Hand;
             };
 
-            // The status bar reports access level, scan progress, totals, and errors.
+            // The status bar reports access level, scan progress, totals, and skipped items.
             status.Items.Add(statusText);
             status.Items.Add(new ToolStripStatusLabel { Spring = true });
             status.Items.Add(scanText);
@@ -347,7 +347,7 @@ namespace TreeMeasure
             statusText.Text = AccessLabel() + " - Scanning " + path;
             scannedFiles = 0;
             scannedFolders = 0;
-            scanErrors = 0;
+            scanSkipped = 0;
             DiskItem ignored;
             while (liveUpdates.TryDequeue(out ignored)) { }
             scanning = true;
@@ -366,7 +366,7 @@ namespace TreeMeasure
                     progressTimer.Stop();
                     statusText.Text = AccessLabel() + " - Ready";
                     scanText.Text = FormatSize(rootItem.Size) + " in " + rootItem.FileCount.ToString("N0") + " files, " +
-                                    rootItem.FolderCount.ToString("N0") + " folders, " + rootItem.ErrorCount.ToString("N0") + " errors";
+                                    rootItem.FolderCount.ToString("N0") + " folders, " + rootItem.SkippedCount.ToString("N0") + " skipped";
                     tree.Invalidate();
                 });
             });
@@ -396,25 +396,26 @@ namespace TreeMeasure
 
         private void ScanDirectory(DirectoryInfo directory, DiskItem item, CancellationToken token)
         {
-            // Directory enumeration is defensive: protected folders and transient files are counted as errors.
+            // Directory enumeration is defensive: protected folders and transient files are counted as skipped.
             if (token.IsCancellationRequested) return;
             IncrementFolder();
             QueueLiveUpdate(item);
 
-            FileInfo[] files = new FileInfo[0];
-            DirectoryInfo[] directories = new DirectoryInfo[0];
-
-            try { files = directory.GetFiles(); }
-            catch { AddError(item); }
+            FileSystemInfo[] entries;
+            try { entries = directory.GetFileSystemInfos(); }
+            catch { AddSkipped(item); return; }
 
             int fileBatch = 0;
-            foreach (var file in files)
+            foreach (var entry in entries)
             {
+                var file = entry as FileInfo;
+                if (file == null) continue;
+
                 // Store file rows so expanded folders show their contents, but only draw them when expanded.
                 if (token.IsCancellationRequested) return;
                 long length = 0;
                 try { length = file.Length; }
-                catch { AddError(item); }
+                catch { AddSkipped(item); continue; }
 
                 AddChildFile(item, new DiskItem
                 {
@@ -436,11 +437,11 @@ namespace TreeMeasure
             }
             QueueLiveUpdate(item);
 
-            try { directories = directory.GetDirectories(); }
-            catch { AddError(item); }
-
-            foreach (var childDirectory in directories)
+            foreach (var entry in entries)
             {
+                var childDirectory = entry as DirectoryInfo;
+                if (childDirectory == null) continue;
+
                 if (token.IsCancellationRequested) return;
                 // Reparse points can create loops or expensive detours, so avoid recursing into them.
                 if (IsReparsePoint(childDirectory)) continue;
@@ -488,14 +489,14 @@ namespace TreeMeasure
             }
         }
 
-        private void AddError(DiskItem item)
+        private void AddSkipped(DiskItem item)
         {
-            // Bubble access errors upward so totals match what the user sees at every level.
+            // Bubble skipped items upward so totals match what the user sees at every level.
             for (DiskItem cursor = item; cursor != null; cursor = cursor.Parent)
             {
-                cursor.ErrorCount++;
+                cursor.SkippedCount++;
             }
-            IncrementError();
+            IncrementSkipped();
         }
 
         private void QueueLiveUpdate(DiskItem item)
@@ -1237,7 +1238,7 @@ namespace TreeMeasure
 
                 using (var writer = new StreamWriter(dialog.FileName, false, Encoding.UTF8))
                 {
-                    writer.WriteLine("Path,SizeBytes,Files,Folders,Errors");
+                    writer.WriteLine("Path,SizeBytes,Files,Folders,Skipped");
                     WriteCsv(writer, item);
                 }
                 statusText.Text = "Exported " + dialog.FileName;
@@ -1247,7 +1248,7 @@ namespace TreeMeasure
         private void WriteCsv(StreamWriter writer, DiskItem item)
         {
             // Depth-first export preserves the tree relationship in path order.
-            writer.WriteLine("\"" + item.Path.Replace("\"", "\"\"") + "\"," + item.Size + "," + item.FileCount + "," + item.FolderCount + "," + item.ErrorCount);
+            writer.WriteLine("\"" + item.Path.Replace("\"", "\"\"") + "\"," + item.Size + "," + item.FileCount + "," + item.FolderCount + "," + item.SkippedCount);
             foreach (var child in item.Children) WriteCsv(writer, child);
         }
 
@@ -1263,10 +1264,10 @@ namespace TreeMeasure
             lock (progressLock) scannedFolders++;
         }
 
-        private void IncrementError()
+        private void IncrementSkipped()
         {
             // See IncrementFile.
-            lock (progressLock) scanErrors++;
+            lock (progressLock) scanSkipped++;
         }
 
         private void UpdateProgressStatus()
@@ -1276,14 +1277,14 @@ namespace TreeMeasure
             ApplyLiveUpdates(500);
             long files;
             long folders;
-            int errors;
+            int skipped;
             lock (progressLock)
             {
                 files = scannedFiles;
                 folders = scannedFolders;
-                errors = scanErrors;
+                skipped = scanSkipped;
             }
-            scanText.Text = "Scanning: " + files.ToString("N0") + " files, " + folders.ToString("N0") + " folders, " + errors.ToString("N0") + " errors";
+            scanText.Text = "Scanning: " + files.ToString("N0") + " files, " + folders.ToString("N0") + " folders, " + skipped.ToString("N0") + " skipped";
         }
 
         // Shell icon constants used by SHGetFileInfo.

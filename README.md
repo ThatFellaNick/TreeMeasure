@@ -8,7 +8,7 @@ actions.
 
 The tree starts filling while the scan is still running. TreeMeasure keeps the
 view folder-first for performance on large drives while counting all files,
-folders, sizes, and access errors.
+folders, sizes, and skipped protected items.
 
 ## Build
 
