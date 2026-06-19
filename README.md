@@ -37,7 +37,7 @@ $env:TREEMEASURE_SIGNING_THUMBPRINT = "YOUR_CERTIFICATE_THUMBPRINT"
 .\release.ps1
 ```
 
-The release command builds version 1.1.0, signs it with SHA-256, adds a trusted
+The release command builds version 1.1.1, signs it with SHA-256, adds a trusted
 timestamp, verifies the resulting Authenticode signature, and creates a
 versioned portable ZIP plus checksum in `dist`. It stops rather than producing
 an unsigned release when the certificate is unavailable or invalid.

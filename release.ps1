@@ -7,7 +7,7 @@
 #>
 
 param(
-    [string]$Version = "1.1.0",
+    [string]$Version = "1.1.1",
     [string]$CertificateThumbprint = $env:TREEMEASURE_SIGNING_THUMBPRINT,
     [string]$TimestampServer = "http://timestamp.digicert.com"
 )
