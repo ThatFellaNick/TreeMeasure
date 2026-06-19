@@ -34,8 +34,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("TreeMeasure Project")]
 [assembly: AssemblyProduct("TreeMeasure")]
 [assembly: AssemblyCopyright("Copyright 2026 TreeMeasure Project")]
-[assembly: AssemblyVersion("1.1.1.0")]
-[assembly: AssemblyFileVersion("1.1.1.0")]
+[assembly: AssemblyVersion("1.1.2.0")]
+[assembly: AssemblyFileVersion("1.1.2.0")]
 
 namespace TreeMeasure
 {
@@ -279,7 +279,7 @@ namespace TreeMeasure
             // Unit and sorting controls mirror the clickable header behavior.
             unitBox.DropDownStyle = ComboBoxStyle.DropDownList;
             unitBox.Width = 92;
-            unitBox.Items.AddRange(new object[] { "Auto units", "GB", "MB", "KB", "Bytes" });
+            unitBox.Items.AddRange(new object[] { "Auto", "TB", "GB", "MB", "KB", "Bytes" });
             unitBox.SelectedIndex = 0;
             unitBox.SelectedIndexChanged += delegate { tree.Invalidate(); };
 
@@ -1114,11 +1114,12 @@ namespace TreeMeasure
         private string FormatSize(long bytes)
         {
             // Convert raw bytes to the unit selected in the toolbar, or choose a readable automatic unit.
-            string unit = unitBox.SelectedItem == null ? "Auto units" : unitBox.SelectedItem.ToString();
+            string unit = unitBox.SelectedItem == null ? "Auto" : unitBox.SelectedItem.ToString();
             if (unit == "Bytes") return bytes.ToString("N0") + " B";
             if (unit == "KB") return (bytes / 1024d).ToString("N1") + " KB";
             if (unit == "MB") return (bytes / 1048576d).ToString("N1") + " MB";
             if (unit == "GB") return (bytes / 1073741824d).ToString("N2") + " GB";
+            if (unit == "TB") return (bytes / 1099511627776d).ToString("N2") + " TB";
 
             double value = bytes;
             string[] units = { "B", "KB", "MB", "GB", "TB" };
