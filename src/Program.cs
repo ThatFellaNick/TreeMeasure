@@ -8,7 +8,7 @@
 // - Work in normal desktop sessions and ScreenConnect Backstage/SYSTEM sessions.
 // - Scan folders on a background thread while progressively updating the tree.
 // - Keep the UI familiar: expandable rows, usage bars, sortable headers,
-//   Explorer shell icons, and Explorer-style right-click context menus.
+//   familiar shell icons, and a small read-only right-click menu.
 //
 // This file intentionally keeps the application in one source file so it can be
 // compiled by the C# compiler included with .NET Framework on Windows.
@@ -25,7 +25,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
-using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -167,7 +166,7 @@ namespace TreeMeasure
         }
     }
 
-    // Main TreeMeasure window. Owns scanning, tree rendering, sorting, and shell actions.
+    // Main TreeMeasure window. Owns scanning, tree rendering, sorting, and file actions.
     internal sealed class MainForm : Form
     {
         // Core UI controls.
@@ -277,14 +276,6 @@ namespace TreeMeasure
             exportButton.ToolTipText = "Export the completed file structure for analysis.";
             exportButton.Click += delegate { ExportJson(rootItem, "TreeMeasure-scan.json"); };
 
-            // Normal desktop sessions may need elevation; ScreenConnect Backstage usually runs as SYSTEM already.
-            var adminButton = new ToolStripButton("Restart as Admin");
-            adminButton.Enabled = !IsElevated() && !IsSystemAccount();
-            adminButton.ToolTipText = adminButton.Enabled
-                ? "Restart TreeMeasure with administrator rights."
-                : "TreeMeasure already has elevated or SYSTEM access.";
-            adminButton.Click += delegate { RestartAsAdmin(); };
-
             // Unit and sorting controls mirror the clickable header behavior.
             unitBox.DropDownStyle = ComboBoxStyle.DropDownList;
             unitBox.Width = 92;
@@ -307,7 +298,6 @@ namespace TreeMeasure
             toolStrip.Items.Add(stopButton);
             toolStrip.Items.Add(refreshButton);
             toolStrip.Items.Add(exportButton);
-            toolStrip.Items.Add(adminButton);
             toolStrip.Items.Add(new ToolStripSeparator());
             toolStrip.Items.Add(new ToolStripLabel("Units"));
             toolStrip.Items.Add(unitBox);
@@ -342,13 +332,9 @@ namespace TreeMeasure
             {
                 if (e.Button == MouseButtons.Right)
                 {
-                    // Prefer the real Explorer shell context menu; fall back to built-in actions if unavailable.
+                    // Use the app-owned menu so right-click actions stay predictable and read-only.
                     tree.SelectedNode = e.Node;
-                    var item = e.Node.Tag as DiskItem;
-                    if (item == null || !ShellContextMenu.Show(Handle, item.Path, tree.PointToScreen(e.Location)))
-                    {
-                        nodeMenu.Show(tree, e.Location);
-                    }
+                    nodeMenu.Show(tree, e.Location);
                 }
                 else if (e.Button == MouseButtons.Left && IsExpandMarkerClick(e))
                 {
@@ -360,9 +346,8 @@ namespace TreeMeasure
 
         private void BuildMenu()
         {
-            // Fallback menu used when Windows cannot provide a native Explorer shell context menu.
+            // Keep actions explicit and non-destructive; no shell extension commands are loaded.
             nodeMenu.Items.Add("Open in File Explorer", null, delegate { OpenSelectedInExplorer(); });
-            nodeMenu.Items.Add("Open Command Prompt Here", null, delegate { OpenCommandPromptHere(); });
             nodeMenu.Items.Add("Copy Path", null, delegate { CopySelectedPath(); });
             nodeMenu.Items.Add("Expand Branch", null, delegate { if (tree.SelectedNode != null) tree.SelectedNode.ExpandAll(); });
             nodeMenu.Items.Add("Collapse Branch", null, delegate { if (tree.SelectedNode != null) tree.SelectedNode.Collapse(false); });
@@ -395,7 +380,7 @@ namespace TreeMeasure
             rootItem.Node = rootNode;
             tree.Nodes.Add(rootNode);
             rootNode.Expand();
-            statusText.Text = AccessLabel() + " - Scanning " + path;
+            statusText.Text = "Scanning " + path;
             scannedFiles = 0;
             scannedFolders = 0;
             scanSkipped = 0;
@@ -415,7 +400,7 @@ namespace TreeMeasure
                     scanning = false;
                     RebuildTree();
                     progressTimer.Stop();
-                    statusText.Text = AccessLabel() + " - Ready";
+                    statusText.Text = "Ready";
                     scanText.Text = FormatSize(rootItem.Size) + " in " + rootItem.FileCount.ToString("N0") + " files, " +
                                     rootItem.FolderCount.ToString("N0") + " folders, " + rootItem.SkippedCount.ToString("N0") + " skipped";
                     tree.Invalidate();
@@ -1169,99 +1154,6 @@ namespace TreeMeasure
             }
         }
 
-        private void OpenCommandPromptHere()
-        {
-            // Useful in ScreenConnect Backstage where Explorer may not be the primary workflow.
-            var item = SelectedItem();
-            if (item == null) return;
-
-            string folder = item.IsFile ? Path.GetDirectoryName(item.Path) : item.Path;
-            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return;
-
-            try
-            {
-                var startInfo = new ProcessStartInfo("cmd.exe");
-                startInfo.WorkingDirectory = folder;
-                startInfo.UseShellExecute = true;
-                Process.Start(startInfo);
-            }
-            catch (Exception ex)
-            {
-                statusText.Text = "Could not open command prompt: " + ex.Message;
-            }
-        }
-
-        private void RestartAsAdmin()
-        {
-            // Relaunch through UAC and preserve the current scan path.
-            try
-            {
-                string exe = Assembly.GetExecutingAssembly().Location;
-                string path = !string.IsNullOrEmpty(currentRoot) ? currentRoot : startupPath;
-                var startInfo = new ProcessStartInfo(exe);
-                if (!string.IsNullOrEmpty(path))
-                {
-                    startInfo.Arguments = "/path " + QuoteArgument(path);
-                }
-                startInfo.Verb = "runas";
-                startInfo.UseShellExecute = true;
-                Process.Start(startInfo);
-                Close();
-            }
-            catch (Exception ex)
-            {
-                statusText.Text = "Could not restart as admin: " + ex.Message;
-            }
-        }
-
-        private static string QuoteArgument(string value)
-        {
-            // Quote paths passed back into TreeMeasure during elevated relaunch.
-            return "\"" + value.Replace("\"", "\\\"") + "\"";
-        }
-
-        private static string AccessLabel()
-        {
-            // Surface effective access because scan coverage depends heavily on privileges.
-            if (IsSystemAccount()) return "Running as SYSTEM";
-            if (IsElevated()) return "Running as Administrator";
-            return "Running as standard user";
-        }
-
-        private static bool IsSystemAccount()
-        {
-            // SYSTEM is the normal identity for ScreenConnect Backstage.
-            try
-            {
-                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
-                {
-                    return identity != null &&
-                           string.Equals(identity.User.Value, "S-1-5-18", StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static bool IsElevated()
-        {
-            // Detect whether a normal desktop launch already has administrator rights.
-            try
-            {
-                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
-                {
-                    var principal = new WindowsPrincipal(identity);
-                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
         private void CopySelectedPath()
         {
             // Copy the full filesystem path for quick pasting into tools or tickets.
@@ -1556,149 +1448,4 @@ namespace TreeMeasure
         }
     }
 
-    internal static class ShellContextMenu
-    {
-        // Thin wrapper around Explorer's COM context menu interfaces.
-        // This lets TreeMeasure inherit installed shell extensions instead of cloning Explorer's menu by hand.
-        private const uint CMF_NORMAL = 0x00000000;
-        private const uint TPM_RETURNCMD = 0x0100;
-        private const uint TPM_RIGHTBUTTON = 0x0002;
-        private const uint CMD_FIRST = 1;
-        private const uint CMD_LAST = 0x7FFF;
-        private const int SW_SHOWNORMAL = 1;
-
-        public static bool Show(IntPtr owner, string path, Point screenPoint)
-        {
-            // Return false when Windows cannot build a shell menu so the app can show its fallback menu.
-            if (string.IsNullOrEmpty(path)) return false;
-            if (!File.Exists(path) && !Directory.Exists(path)) return false;
-
-            IntPtr absolutePidl = IntPtr.Zero;
-            IntPtr menu = IntPtr.Zero;
-            IntPtr contextMenuPtr = IntPtr.Zero;
-            IShellFolder parentFolder = null;
-
-            try
-            {
-                // Convert the filesystem path to a PIDL and get the parent shell folder plus child PIDL.
-                uint attributes;
-                if (SHParseDisplayName(path, IntPtr.Zero, out absolutePidl, 0, out attributes) != 0 || absolutePidl == IntPtr.Zero)
-                    return false;
-
-                Guid shellFolderId = typeof(IShellFolder).GUID;
-                IntPtr childPidl;
-                if (SHBindToParent(absolutePidl, ref shellFolderId, out parentFolder, out childPidl) != 0 || parentFolder == null || childPidl == IntPtr.Zero)
-                    return false;
-
-                Guid contextMenuId = typeof(IContextMenu).GUID;
-                IntPtr[] childPidls = new IntPtr[] { childPidl };
-                // Ask the parent shell folder for the selected item's context menu object.
-                if (parentFolder.GetUIObjectOf(owner, 1, childPidls, ref contextMenuId, IntPtr.Zero, out contextMenuPtr) != 0 || contextMenuPtr == IntPtr.Zero)
-                    return false;
-
-                var contextMenu = (IContextMenu)Marshal.GetObjectForIUnknown(contextMenuPtr);
-                menu = CreatePopupMenu();
-                if (menu == IntPtr.Zero) return false;
-
-                if (contextMenu.QueryContextMenu(menu, 0, CMD_FIRST, CMD_LAST, CMF_NORMAL) < 0)
-                    return false;
-
-                // TrackPopupMenuEx returns the selected command id; zero means the user dismissed the menu.
-                uint command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.X, screenPoint.Y, owner, IntPtr.Zero);
-                if (command == 0) return true;
-
-                // Invoke the selected shell command using the offset expected by IContextMenu.
-                var invoke = new CMINVOKECOMMANDINFO();
-                invoke.cbSize = Marshal.SizeOf(typeof(CMINVOKECOMMANDINFO));
-                invoke.hwnd = owner;
-                invoke.lpVerb = new IntPtr(command - CMD_FIRST);
-                invoke.nShow = SW_SHOWNORMAL;
-                contextMenu.InvokeCommand(ref invoke);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-            finally
-            {
-                // COM and shell handles must be released explicitly to avoid leaks during repeated right-clicks.
-                if (menu != IntPtr.Zero) DestroyMenu(menu);
-                if (contextMenuPtr != IntPtr.Zero) Marshal.Release(contextMenuPtr);
-                if (parentFolder != null) Marshal.ReleaseComObject(parentFolder);
-                if (absolutePidl != IntPtr.Zero) CoTaskMemFree(absolutePidl);
-            }
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct CMINVOKECOMMANDINFO
-        {
-            // Structure passed to IContextMenu.InvokeCommand.
-            public int cbSize;
-            public int fMask;
-            public IntPtr hwnd;
-            public IntPtr lpVerb;
-            public string lpParameters;
-            public string lpDirectory;
-            public int nShow;
-            public int dwHotKey;
-            public IntPtr hIcon;
-        }
-
-        [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214E6-0000-0000-C000-000000000046")]
-        private interface IShellFolder
-        {
-            // Partial IShellFolder definition; only GetUIObjectOf is used directly here.
-            [PreserveSig]
-            int ParseDisplayName(IntPtr hwnd, IntPtr pbc, [MarshalAs(UnmanagedType.LPWStr)] string pszDisplayName, ref uint pchEaten, out IntPtr ppidl, ref uint pdwAttributes);
-            [PreserveSig]
-            int EnumObjects(IntPtr hwnd, int grfFlags, out IntPtr ppenumIDList);
-            [PreserveSig]
-            int BindToObject(IntPtr pidl, IntPtr pbc, ref Guid riid, out IntPtr ppv);
-            [PreserveSig]
-            int BindToStorage(IntPtr pidl, IntPtr pbc, ref Guid riid, out IntPtr ppv);
-            [PreserveSig]
-            int CompareIDs(IntPtr lParam, IntPtr pidl1, IntPtr pidl2);
-            [PreserveSig]
-            int CreateViewObject(IntPtr hwndOwner, ref Guid riid, out IntPtr ppv);
-            [PreserveSig]
-            int GetAttributesOf(uint cidl, IntPtr apidl, ref uint rgfInOut);
-            [PreserveSig]
-            int GetUIObjectOf(IntPtr hwndOwner, uint cidl, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] IntPtr[] apidl, ref Guid riid, IntPtr rgfReserved, out IntPtr ppv);
-            [PreserveSig]
-            int GetDisplayNameOf(IntPtr pidl, uint uFlags, IntPtr pName);
-            [PreserveSig]
-            int SetNameOf(IntPtr hwnd, IntPtr pidl, [MarshalAs(UnmanagedType.LPWStr)] string pszName, uint uFlags, out IntPtr ppidlOut);
-        }
-
-        [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214E4-0000-0000-C000-000000000046")]
-        private interface IContextMenu
-        {
-            // Native Explorer context menu interface.
-            [PreserveSig]
-            int QueryContextMenu(IntPtr hmenu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint uFlags);
-            [PreserveSig]
-            int InvokeCommand(ref CMINVOKECOMMANDINFO pici);
-            [PreserveSig]
-            int GetCommandString(UIntPtr idCmd, uint uType, IntPtr pReserved, IntPtr pszName, uint cchMax);
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern int SHParseDisplayName(string pszName, IntPtr pbc, out IntPtr ppidl, uint sfgaoIn, out uint psfgaoOut);
-
-        [DllImport("shell32.dll")]
-        private static extern int SHBindToParent(IntPtr pidl, ref Guid riid, out IShellFolder ppv, out IntPtr ppidlLast);
-
-        [DllImport("ole32.dll")]
-        private static extern void CoTaskMemFree(IntPtr pv);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr CreatePopupMenu();
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool DestroyMenu(IntPtr hMenu);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern uint TrackPopupMenuEx(IntPtr hmenu, uint fuFlags, int x, int y, IntPtr hwnd, IntPtr lptpm);
-    }
 }

@@ -74,10 +74,11 @@ You can launch it directly against a drive or folder:
 ```
 
 This is intended to make it friendlier in restricted remote-control sessions
-such as ScreenConnect Backstage, where normal Explorer shell behavior may be
-limited. The right-click menu includes both Explorer and command-prompt actions.
+such as ScreenConnect Backstage. The right-click menu is app-owned and limited
+to explicit file viewing, navigation, rescanning, and export actions; it does
+not load or invoke third-party Explorer shell extensions.
 
 When launched in ScreenConnect Backstage, TreeMeasure should normally run as
-SYSTEM. When launched from a normal desktop session, the toolbar includes
-`Restart as Admin` so protected locations can be scanned with elevated access
-without changing the portable executable.
+SYSTEM. To scan protected locations from a normal desktop session, use
+Windows' standard `Run as administrator` option when starting the executable.
+TreeMeasure does not elevate or relaunch itself.
