@@ -233,7 +233,7 @@ namespace TreeMeasure
                 header.Cursor = HitTestHeader(e.X) == SortColumn.None ? Cursors.Default : Cursors.Hand;
             };
 
-            // The status bar reports access level, scan progress, totals, and skipped items.
+            // The status bar reports scan progress, totals, and skipped items.
             status.Items.Add(statusText);
             status.Items.Add(new ToolStripStatusLabel { Spring = true });
             status.Items.Add(scanText);
@@ -371,6 +371,23 @@ namespace TreeMeasure
 
         private void StartScan(string path)
         {
+            // Normalize local, mapped-drive, and UNC paths before starting the worker.
+            try
+            {
+                path = new DirectoryInfo(path).FullName;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "That folder path is invalid:\r\n\r\n" + ex.Message, "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!Directory.Exists(path))
+            {
+                MessageBox.Show(this, "That folder could not be reached. For a network share, verify the UNC path and the current Windows account's permissions.", "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             // Reset all scan state and immediately show the root row so the UI feels alive.
             StopScan();
             currentRoot = path;
@@ -1316,7 +1333,7 @@ namespace TreeMeasure
 
     internal sealed class StartDialog : Form
     {
-        // Startup dialog for choosing a ready drive or manually entering a folder path.
+        // Startup dialog for choosing a ready drive or entering a local or UNC path.
         private readonly ComboBox locationBox = new ComboBox();
         private readonly TextBox manualPath = new TextBox();
         public string SelectedPath { get; private set; }
@@ -1324,7 +1341,7 @@ namespace TreeMeasure
         public StartDialog()
         {
             // Keep the dialog plain and dependable for remote/backstage environments.
-            Text = "Select a volume or folder";
+            Text = "Select a volume, folder, or network share";
             Width = 520;
             Height = 215;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -1333,7 +1350,7 @@ namespace TreeMeasure
             StartPosition = FormStartPosition.CenterParent;
             Font = new Font("Segoe UI", 9F);
 
-            var label = new Label { Left = 14, Top = 16, Width = 470, Text = "Choose the drive or folder TreeMeasure should scan." };
+            var label = new Label { Left = 14, Top = 16, Width = 470, Text = "Choose a local drive, mapped network drive, folder, or UNC share." };
             locationBox.Left = 14;
             locationBox.Top = 44;
             locationBox.Width = 392;
@@ -1391,7 +1408,7 @@ namespace TreeMeasure
                 }
             };
 
-            var manualLabel = new Label { Left = 14, Top = 82, Width = 470, Text = "Manual path for restricted sessions or ScreenConnect Backstage:" };
+            var manualLabel = new Label { Left = 14, Top = 82, Width = 470, Text = @"Folder or UNC path (example: \\server\share):" };
             manualPath.Left = 14;
             manualPath.Top = 105;
             manualPath.Width = 478;
@@ -1407,11 +1424,22 @@ namespace TreeMeasure
             var cancel = new Button { Left = 408, Top = 145, Width = 84, Height = 28, Text = "Cancel", DialogResult = DialogResult.Cancel };
             scan.Click += delegate
             {
-                // Validate before closing so a mistyped backstage path is easy to correct.
+                // Validate and normalize local or UNC input before closing.
                 string path = manualPath.Text.Trim();
+                try
+                {
+                    path = new DirectoryInfo(path).FullName;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "That folder path is invalid:\r\n\r\n" + ex.Message, "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    DialogResult = DialogResult.None;
+                    return;
+                }
+
                 if (!Directory.Exists(path))
                 {
-                    MessageBox.Show(this, "That folder could not be found.", "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, "That folder could not be reached. For a network share, verify the UNC path and the current Windows account's permissions.", "TreeMeasure", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     DialogResult = DialogResult.None;
                     return;
                 }

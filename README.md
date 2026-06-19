@@ -71,7 +71,14 @@ You can launch it directly against a drive or folder:
 ```powershell
 .\dist\TreeMeasure.exe C:\
 .\dist\TreeMeasure.exe /path C:\Users
+.\dist\TreeMeasure.exe /path \\server\share
 ```
+
+UNC shares and mapped network drives are supported. TreeMeasure uses the
+Windows credentials of the account that launches it and does not store network
+credentials. Mapped drive letters are session-specific, so a Backstage/SYSTEM
+session may not see drives mapped by the desktop user; enter the direct UNC path
+instead and grant that account access to the share.
 
 This is intended to make it friendlier in restricted remote-control sessions
 such as ScreenConnect Backstage. The right-click menu is app-owned and limited

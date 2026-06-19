@@ -61,6 +61,11 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     /reference:System.Windows.Forms.dll `
     $src
 
+# The framework compiler is a native executable, so explicitly enforce its exit code.
+if ($LASTEXITCODE -ne 0) {
+    throw "Compilation failed with exit code $LASTEXITCODE. Close any running copy of TreeMeasure and try again."
+}
+
 # Sign before hashing so the checksum always describes the final executable.
 if ($CertificateThumbprint) {
     # Normalize copied thumbprints because certificate tools sometimes include spaces.
